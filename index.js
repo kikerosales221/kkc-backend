@@ -67,27 +67,62 @@ function getUsageMapForToday() {
   return usageByDay.get(todayKey);
 }
 
+function getAdminTokenFromRequest(req) {
+  const headerToken = req.get("x-kkc-admin-token");
+  const queryToken = typeof req.query?.kkc_admin === "string" ? req.query.kkc_admin : "";
+  const bodyToken = typeof req.body?.adminToken === "string" ? req.body.adminToken : "";
+
+  return [headerToken, queryToken, bodyToken]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .find(Boolean) || "";
+}
+
 function getUsageInfo(req) {
   const todayUsage = getUsageMapForToday();
   const clientKey = getClientKey(req);
   const usedToday = todayUsage.get(clientKey) || 0;
-  const adminBypassActive = Boolean(adminBypassToken) && req.get("x-kkc-admin-token") === adminBypassToken;
+  const providedAdminToken = getAdminTokenFromRequest(req);
+  const adminBypassActive = Boolean(adminBypassToken) && providedAdminToken === adminBypassToken;
 
   return {
     clientKey,
     usedToday,
     remainingToday: adminBypassActive ? null : Math.max(0, dailyAiLimit - usedToday),
     dailyLimit: dailyAiLimit,
-    adminBypassActive
+    adminBypassActive,
+    adminTokenProvided: Boolean(providedAdminToken)
   };
 }
 
 function incrementUsage(req) {
+  const usage = getUsageInfo(req);
+
+  if (usage.adminBypassActive) {
+    return usage.usedToday;
+  }
+
   const todayUsage = getUsageMapForToday();
-  const clientKey = getClientKey(req);
-  const nextCount = (todayUsage.get(clientKey) || 0) + 1;
-  todayUsage.set(clientKey, nextCount);
+  const nextCount = usage.usedToday + 1;
+  todayUsage.set(usage.clientKey, nextCount);
   return nextCount;
+}
+
+function extractTextFromResponseOutput(response) {
+  if (typeof response?.output_text === "string" && response.output_text.trim()) {
+    return response.output_text.trim();
+  }
+
+  const segments = [];
+
+  for (const item of response?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string" && content.text.trim()) {
+        segments.push(content.text.trim());
+      }
+    }
+  }
+
+  return segments.join("\n").trim();
 }
 
 app.use(cors());
@@ -117,6 +152,7 @@ app.get("/api/health", (req, res) => {
     usedToday: usage.usedToday,
     remainingToday: usage.remainingToday,
     adminBypassActive: usage.adminBypassActive,
+    adminTokenProvided: usage.adminTokenProvided,
     lastError: lastOpenAIError
       ? {
           status: lastOpenAIError.status || null,
@@ -156,7 +192,8 @@ app.post("/api/ask", async (req, res) => {
       providerStatus: "daily_limit_reached",
       dailyLimit: dailyAiLimit,
       usedToday: usage.usedToday,
-      remainingToday: 0
+      remainingToday: 0,
+      adminBypassActive: false
     });
   }
 
@@ -177,7 +214,7 @@ app.post("/api/ask", async (req, res) => {
         max_output_tokens: 180
       });
 
-      answer = response.output_text?.trim() || "";
+      answer = extractTextFromResponseOutput(response);
     } else {
       const completion = await openai.chat.completions.create({
         model,
@@ -195,8 +232,8 @@ app.post("/api/ask", async (req, res) => {
 
     if (!answer) {
       answer = locale === "en"
-        ? "No useful answer was returned by the model."
-        : "No se recibio una respuesta util del modelo.";
+        ? "I could not produce a useful answer this time. Please try rephrasing your request."
+        : "No pude generar una respuesta util esta vez. Intenta reformular tu pregunta.";
     }
 
     const updatedUsage = getUsageInfo(req);
@@ -209,7 +246,8 @@ app.post("/api/ask", async (req, res) => {
       dailyLimit: updatedUsage.dailyLimit,
       usedToday: updatedUsage.usedToday,
       remainingToday: updatedUsage.remainingToday,
-      adminBypassActive: updatedUsage.adminBypassActive
+      adminBypassActive: updatedUsage.adminBypassActive,
+      adminTokenProvided: updatedUsage.adminTokenProvided
     });
   } catch (error) {
     lastOpenAIError = {
