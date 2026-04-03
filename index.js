@@ -16,30 +16,6 @@ const openai = apiKey ? new OpenAI({ apiKey }) : null;
 const usageByDay = new Map();
 let lastOpenAIError = null;
 
-function getInstructions(locale) {
-  if (locale === "en") {
-    return [
-      "You are KKCalculator AI, a practical, useful, friendly assistant.",
-      "Reply in clear, direct English.",
-      "Use at most 3 short sentences or 3 short bullet-style steps.",
-      "If the user sends a math expression, give the result first and then a very short explanation.",
-      "If the user asks for help with text, work, or study, answer simply and usefully.",
-      "If the request is incomplete, ask one short clarifying question.",
-      "Do not invent numeric results. If information is missing, say so."
-    ].join(" ");
-  }
-
-  return [
-    "Eres KKCalculator AI, un asistente practico, util y cercano.",
-    "Responde en espanol claro, directo y breve.",
-    "Usa maximo 3 frases cortas o 3 pasos cortos.",
-    "Si el usuario hace una operacion matematica, da el resultado primero y una explicacion muy breve despues.",
-    "Si el usuario pide ayuda con texto, trabajo o estudio, responde de forma simple, util y breve.",
-    "Si la solicitud esta incompleta, haz una sola pregunta breve para aclarar.",
-    "No inventes resultados numericos: si falta informacion, dilo."
-  ].join(" ");
-}
-
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -130,15 +106,146 @@ function extractTextFromResponseOutput(response) {
   return segments.join("\n").trim();
 }
 
-async function requestAnswer(prompt, locale) {
-  const instructions = getInstructions(locale);
+function classifyIntent(prompt) {
+  const text = prompt.trim();
+  const lower = text.toLowerCase();
+
+  if (/(summari[sz]e|summary|resume|resumen|resumir|tl;dr)/i.test(lower)) {
+    return "summarize";
+  }
+
+  if (/(write|draft|rewrite|email|message|mensaje|correo|redacta|redactar|escribe)/i.test(lower)) {
+    return "write";
+  }
+
+  if (/(translate|traduc|rewrite in|improve this text|mejora este texto)/i.test(lower)) {
+    return "write";
+  }
+
+  if (
+    /^[0-9\s+\-*/().,%^=]+$/.test(text) ||
+    /(solve|calculate|calc|equation|fraction|porcentaje|calcula|resuelve|ecuacion|operacion|math|matemat)/i.test(lower)
+  ) {
+    return "calculate";
+  }
+
+  if (/(explain|what is|how does|por que|porque|que es|explica|como funciona|difference between)/i.test(lower)) {
+    return "explain";
+  }
+
+  return "general";
+}
+
+function getInstructions(locale, intent) {
+  const isEnglish = locale === "en";
+  const shared = isEnglish
+    ? [
+        "You are KKCalculator AI, a practical, useful, friendly assistant.",
+        "Always return a helpful text response.",
+        "Be direct, natural, and concise.",
+        "Prefer 2 or 3 short paragraphs or 3 short bullets max.",
+        "If the request is incomplete, ask one short clarifying question instead of returning empty.",
+        "Do not invent numeric results."
+      ]
+    : [
+        "Eres KKCalculator AI, un asistente practico, util y cercano.",
+        "Devuelve siempre una respuesta util.",
+        "Responde de forma directa, natural y breve.",
+        "Prefiere 2 o 3 parrafos cortos o maximo 3 puntos breves.",
+        "Si la solicitud esta incompleta, haz una sola pregunta breve para aclarar en vez de responder vacio.",
+        "No inventes resultados numericos."
+      ];
+
+  const intentInstructions = {
+    calculate: isEnglish
+      ? [
+          "If the user asks for math help, give the result or method first.",
+          "If it is a conceptual math question, explain it simply with one short example.",
+          "Keep it classroom-clear, but still useful for adults."
+        ]
+      : [
+          "Si el usuario pide ayuda matematica, da primero el resultado o el metodo.",
+          "Si es una pregunta conceptual de matematicas, explicala de forma simple con un ejemplo corto.",
+          "Debe ser claro para estudiar, pero tambien util para adultos."
+        ],
+    explain: isEnglish
+      ? [
+          "Explain the concept in simple language.",
+          "If helpful, end with one practical example."
+        ]
+      : [
+          "Explica el concepto con lenguaje simple.",
+          "Si ayuda, termina con un ejemplo practico."
+        ],
+    write: isEnglish
+      ? [
+          "When asked to write, produce a clean ready-to-send draft.",
+          "Use a professional but warm tone unless the user asks otherwise.",
+          "Do not over-explain the draft."
+        ]
+      : [
+          "Cuando te pidan redactar, entrega un borrador limpio y listo para usar.",
+          "Usa un tono profesional pero cercano, salvo que el usuario pida otro.",
+          "No sobreexplique el borrador."
+        ],
+    summarize: isEnglish
+      ? [
+          "Summaries must be short and easy to scan.",
+          "If the user did not include the source text, ask for it clearly."
+        ]
+      : [
+          "Los resumenes deben ser cortos y faciles de leer.",
+          "Si el usuario no incluyo el texto fuente, pidelo de forma clara."
+        ],
+    general: isEnglish
+      ? ["Answer as a practical everyday assistant for study, work, and daily tasks."]
+      : ["Responde como un asistente practico para estudio, trabajo y tareas del dia a dia."]
+  };
+
+  return [...shared, ...(intentInstructions[intent] || intentInstructions.general)].join(" ");
+}
+
+function buildRescueAnswer(prompt, locale, intent) {
+  const isEnglish = locale === "en";
+
+  if (intent === "write") {
+    return isEnglish
+      ? "Sure. Try this: Hello [Name], I hope you are doing well. I am writing to ask [your request]. Please let me know if this works for you. Thank you."
+      : "Claro. Prueba esto: Hola [Nombre], espero que estes bien. Te escribo para solicitar [tu pedido]. Quedo atento a tu confirmacion. Gracias.";
+  }
+
+  if (intent === "summarize") {
+    return isEnglish
+      ? "I can do that. Paste the full text you want summarized and I will return a short version."
+      : "Puedo hacerlo. Pega el texto completo que quieres resumir y te devuelvo una version corta.";
+  }
+
+  if (intent === "explain") {
+    return isEnglish
+      ? "I can explain it, but I need the exact concept or question written in one complete sentence."
+      : "Puedo explicarlo, pero necesito el concepto o la pregunta exacta en una frase completa.";
+  }
+
+  if (intent === "calculate") {
+    return isEnglish
+      ? "I can help with that. Send the full expression or the exact math question and I will solve it step by step."
+      : "Puedo ayudarte con eso. Enviame la expresion completa o la pregunta matematica exacta y la resuelvo paso a paso.";
+  }
+
+  return isEnglish
+    ? "Your request looks incomplete. Finish the sentence or add one more detail and I will try again."
+    : "Tu solicitud parece incompleta. Termina la frase o agrega un detalle mas y lo intento de nuevo.";
+}
+
+async function requestAnswer(prompt, locale, intent) {
+  const instructions = getInstructions(locale, intent);
 
   if (typeof openai.responses?.create === "function") {
     const response = await openai.responses.create({
       model,
       instructions,
       input: prompt,
-      max_output_tokens: 180
+      max_output_tokens: 220
     });
 
     const answer = extractTextFromResponseOutput(response);
@@ -153,7 +260,7 @@ async function requestAnswer(prompt, locale) {
       { role: "system", content: instructions },
       { role: "user", content: prompt }
     ],
-    max_completion_tokens: 180
+    max_completion_tokens: 220
   });
 
   return {
@@ -237,15 +344,14 @@ app.post("/api/ask", async (req, res) => {
   incrementUsage(req);
 
   try {
-    const { answer: rawAnswer, apiMode } = await requestAnswer(prompt, locale);
+    const intent = classifyIntent(prompt);
+    const { answer: rawAnswer, apiMode } = await requestAnswer(prompt, locale, intent);
     let answer = rawAnswer;
 
     lastOpenAIError = null;
 
     if (!answer) {
-      answer = locale === "en"
-        ? "I could not produce a useful answer this time. Please try rephrasing your request."
-        : "No pude generar una respuesta util esta vez. Intenta reformular tu pregunta.";
+      answer = buildRescueAnswer(prompt, locale, intent);
     }
 
     const updatedUsage = getUsageInfo(req);
@@ -255,6 +361,7 @@ app.post("/api/ask", async (req, res) => {
       model,
       apiMode,
       providerStatus: "ok",
+      intent,
       dailyLimit: updatedUsage.dailyLimit,
       usedToday: updatedUsage.usedToday,
       remainingToday: updatedUsage.remainingToday,
@@ -289,4 +396,3 @@ app.listen(port, () => {
   console.log(`Model: ${model}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
-
