@@ -16,14 +16,27 @@ const openai = apiKey ? new OpenAI({ apiKey }) : null;
 const usageByDay = new Map();
 let lastOpenAIError = null;
 
-const assistantInstructions = [
-  "Eres KKCalculator AI, un asistente util y cercano.",
-  "Responde en espanol claro, directo y breve.",
-  "Usa maximo 3 frases cortas o 3 pasos cortos.",
-  "Si el usuario hace una operacion matematica, da el resultado primero y una explicacion muy breve despues.",
-  "Si el usuario pide una explicacion, prioriza la idea principal sin rodeos.",
-  "No inventes resultados numericos: si falta informacion, dilo."
-].join(" ");
+function getInstructions(locale) {
+  if (locale === "en") {
+    return [
+      "You are KKCalculator AI, a practical, useful, friendly assistant.",
+      "Reply in clear, direct English.",
+      "Use at most 3 short sentences or 3 short bullet-style steps.",
+      "If the user sends a math expression, give the result first and then a very short explanation.",
+      "If the user asks for help with text, work, or study, answer simply and usefully.",
+      "Do not invent numeric results. If information is missing, say so."
+    ].join(" ");
+  }
+
+  return [
+    "Eres KKCalculator AI, un asistente practico, util y cercano.",
+    "Responde en espanol claro, directo y breve.",
+    "Usa maximo 3 frases cortas o 3 pasos cortos.",
+    "Si el usuario hace una operacion matematica, da el resultado primero y una explicacion muy breve despues.",
+    "Si el usuario pide ayuda con texto, trabajo o estudio, responde de forma simple, util y breve.",
+    "No inventes resultados numericos: si falta informacion, dilo."
+  ].join(" ");
+}
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -108,7 +121,7 @@ app.get("/api/health", (req, res) => {
       ? {
           status: lastOpenAIError.status || null,
           code: lastOpenAIError.code || null,
-          message: lastOpenAIError.message || "Error desconocido"
+          message: lastOpenAIError.message || "Unknown error"
         }
       : null
   });
@@ -116,6 +129,7 @@ app.get("/api/health", (req, res) => {
 
 app.post("/api/ask", async (req, res) => {
   const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+  const locale = req.body?.locale === "en" ? "en" : "es";
 
   if (!prompt) {
     return res.status(400).json({ error: "No prompt provided" });
@@ -124,7 +138,9 @@ app.post("/api/ask", async (req, res) => {
   if (!openai) {
     return res.status(500).json({
       error: "OPENAI_API_KEY is missing",
-      details: "Define OPENAI_API_KEY in kkc-backend/.env before using the AI backend.",
+      details: locale === "en"
+        ? "Define OPENAI_API_KEY before using the AI backend."
+        : "Define OPENAI_API_KEY antes de usar el backend de IA.",
       providerStatus: "missing_api_key"
     });
   }
@@ -134,7 +150,9 @@ app.post("/api/ask", async (req, res) => {
   if (!usage.adminBypassActive && usage.usedToday >= dailyAiLimit) {
     return res.status(429).json({
       error: "Daily AI limit reached",
-      details: `Esta demo publica permite ${dailyAiLimit} consultas de IA por dia.`,
+      details: locale === "en"
+        ? `This public demo allows ${dailyAiLimit} AI requests per day.`
+        : `Esta demo publica permite ${dailyAiLimit} consultas de IA por dia.`,
       providerStatus: "daily_limit_reached",
       dailyLimit: dailyAiLimit,
       usedToday: usage.usedToday,
@@ -147,13 +165,14 @@ app.post("/api/ask", async (req, res) => {
   try {
     let answer = "";
     let apiMode = "chat.completions";
+    const instructions = getInstructions(locale);
 
     if (typeof openai.responses?.create === "function") {
       apiMode = "responses";
 
       const response = await openai.responses.create({
         model,
-        instructions: assistantInstructions,
+        instructions,
         input: prompt,
         max_output_tokens: 180
       });
@@ -163,7 +182,7 @@ app.post("/api/ask", async (req, res) => {
       const completion = await openai.chat.completions.create({
         model,
         messages: [
-          { role: "system", content: assistantInstructions },
+          { role: "system", content: instructions },
           { role: "user", content: prompt }
         ],
         max_tokens: 180
@@ -175,7 +194,9 @@ app.post("/api/ask", async (req, res) => {
     lastOpenAIError = null;
 
     if (!answer) {
-      answer = "No se recibio una respuesta util del modelo.";
+      answer = locale === "en"
+        ? "No useful answer was returned by the model."
+        : "No se recibio una respuesta util del modelo.";
     }
 
     const updatedUsage = getUsageInfo(req);
@@ -200,7 +221,7 @@ app.post("/api/ask", async (req, res) => {
     console.error("OpenAI backend error:", error);
 
     return res.status(error?.status || 500).json({
-      error: "Error al consultar OpenAI",
+      error: locale === "en" ? "Error while querying OpenAI" : "Error al consultar OpenAI",
       details: error?.message || String(error),
       model,
       providerStatus:
