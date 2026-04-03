@@ -24,6 +24,7 @@ function getInstructions(locale) {
       "Use at most 3 short sentences or 3 short bullet-style steps.",
       "If the user sends a math expression, give the result first and then a very short explanation.",
       "If the user asks for help with text, work, or study, answer simply and usefully.",
+      "If the request is incomplete, ask one short clarifying question.",
       "Do not invent numeric results. If information is missing, say so."
     ].join(" ");
   }
@@ -34,6 +35,7 @@ function getInstructions(locale) {
     "Usa maximo 3 frases cortas o 3 pasos cortos.",
     "Si el usuario hace una operacion matematica, da el resultado primero y una explicacion muy breve despues.",
     "Si el usuario pide ayuda con texto, trabajo o estudio, responde de forma simple, util y breve.",
+    "Si la solicitud esta incompleta, haz una sola pregunta breve para aclarar.",
     "No inventes resultados numericos: si falta informacion, dilo."
   ].join(" ");
 }
@@ -119,10 +121,45 @@ function extractTextFromResponseOutput(response) {
       if (typeof content?.text === "string" && content.text.trim()) {
         segments.push(content.text.trim());
       }
+      if (typeof content?.output_text === "string" && content.output_text.trim()) {
+        segments.push(content.output_text.trim());
+      }
     }
   }
 
   return segments.join("\n").trim();
+}
+
+async function requestAnswer(prompt, locale) {
+  const instructions = getInstructions(locale);
+
+  if (typeof openai.responses?.create === "function") {
+    const response = await openai.responses.create({
+      model,
+      instructions,
+      input: prompt,
+      max_output_tokens: 180
+    });
+
+    const answer = extractTextFromResponseOutput(response);
+    if (answer) {
+      return { answer, apiMode: "responses" };
+    }
+  }
+
+  const completion = await openai.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: instructions },
+      { role: "user", content: prompt }
+    ],
+    max_tokens: 180
+  });
+
+  return {
+    answer: completion.choices[0]?.message?.content?.trim() || "",
+    apiMode: "chat.completions"
+  };
 }
 
 app.use(cors());
@@ -200,33 +237,8 @@ app.post("/api/ask", async (req, res) => {
   incrementUsage(req);
 
   try {
-    let answer = "";
-    let apiMode = "chat.completions";
-    const instructions = getInstructions(locale);
-
-    if (typeof openai.responses?.create === "function") {
-      apiMode = "responses";
-
-      const response = await openai.responses.create({
-        model,
-        instructions,
-        input: prompt,
-        max_output_tokens: 180
-      });
-
-      answer = extractTextFromResponseOutput(response);
-    } else {
-      const completion = await openai.chat.completions.create({
-        model,
-        messages: [
-          { role: "system", content: instructions },
-          { role: "user", content: prompt }
-        ],
-        max_tokens: 180
-      });
-
-      answer = completion.choices[0]?.message?.content?.trim() || "";
-    }
+    const { answer: rawAnswer, apiMode } = await requestAnswer(prompt, locale);
+    let answer = rawAnswer;
 
     lastOpenAIError = null;
 
