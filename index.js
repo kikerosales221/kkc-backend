@@ -153,7 +153,7 @@ async function requestAnswer(prompt, locale) {
       { role: "system", content: instructions },
       { role: "user", content: prompt }
     ],
-    max_tokens: 180
+    max_completion_tokens: 180
   });
 
   return {
@@ -289,3 +289,4 @@ app.listen(port, () => {
   console.log(`Model: ${model}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
