@@ -106,30 +106,57 @@ function extractTextFromResponseOutput(response) {
   return segments.join("\n").trim();
 }
 
+function hasMultipleQuestions(prompt) {
+  const matches = prompt.match(/[??]/g);
+  if (matches && matches.length > 1) {
+    return true;
+  }
+
+  const lower = prompt.toLowerCase();
+  const starters = lower.match(/\b(what is|what are|how do|how does|why|can you|explain|define|que es|como|por que|explica|define)\b/g);
+  return Boolean(starters && starters.length > 1);
+}
+
+function isLikelyMathExpression(text) {
+  return /^[0-9\s+\-*/().,%^=]+$/.test(text.trim());
+}
+
 function classifyIntent(prompt) {
   const text = prompt.trim();
   const lower = text.toLowerCase();
+
+  if (/(translate|traduce|traduceme|translate this|translate to|al espanol|to spanish|to english|al ingles)/i.test(lower)) {
+    return "translate";
+  }
 
   if (/(summari[sz]e|summary|resume|resumen|resumir|tl;dr)/i.test(lower)) {
     return "summarize";
   }
 
-  if (/(write|draft|rewrite|email|message|mensaje|correo|redacta|redactar|escribe)/i.test(lower)) {
+  if (/(rewrite|rewrite this|reescribe|reformular|rephrase|improve this text|mejora este texto)/i.test(lower)) {
+    return "rewrite";
+  }
+
+  if (/(write|draft|email|message|mensaje|correo|redacta|redactar|escribe)/i.test(lower)) {
     return "write";
   }
 
-  if (/(translate|traduc|rewrite in|improve this text|mejora este texto)/i.test(lower)) {
-    return "write";
+  if (hasMultipleQuestions(text)) {
+    return "multi";
+  }
+
+  if (/(explain|what is|what are|how does|por que|porque|que es|explica|como funciona|difference between|define|define this)/i.test(lower)) {
+    return "explain";
   }
 
   if (
-    /^[0-9\s+\-*/().,%^=]+$/.test(text) ||
-    /(solve|calculate|calc|equation|fraction|porcentaje|calcula|resuelve|ecuacion|operacion|math|matemat)/i.test(lower)
+    isLikelyMathExpression(text) ||
+    /(solve|calculate|calc|equation|porcentaje|calcula|resuelve|ecuacion|operacion)/i.test(lower)
   ) {
     return "calculate";
   }
 
-  if (/(explain|what is|how does|por que|porque|que es|explica|como funciona|difference between)/i.test(lower)) {
+  if (/(fraction|fractions|fraccion|fracciones|math concept|mathematical concept|geometr|algebra|decimal|percentage)/i.test(lower)) {
     return "explain";
   }
 
@@ -143,16 +170,18 @@ function getInstructions(locale, intent) {
         "You are KKCalculator AI, a practical, useful, friendly assistant.",
         "Always return a helpful text response.",
         "Be direct, natural, and concise.",
-        "Prefer 2 or 3 short paragraphs or 3 short bullets max.",
+        "Prefer 2 short paragraphs or up to 3 bullets.",
         "If the request is incomplete, ask one short clarifying question instead of returning empty.",
+        "If the user asks multiple questions at once, answer them in a short numbered list.",
         "Do not invent numeric results."
       ]
     : [
         "Eres KKCalculator AI, un asistente practico, util y cercano.",
         "Devuelve siempre una respuesta util.",
         "Responde de forma directa, natural y breve.",
-        "Prefiere 2 o 3 parrafos cortos o maximo 3 puntos breves.",
+        "Prefiere 2 parrafos cortos o hasta 3 puntos.",
         "Si la solicitud esta incompleta, haz una sola pregunta breve para aclarar en vez de responder vacio.",
+        "Si el usuario hace varias preguntas juntas, respondelas en una lista numerada corta.",
         "No inventes resultados numericos."
       ];
 
@@ -160,22 +189,22 @@ function getInstructions(locale, intent) {
     calculate: isEnglish
       ? [
           "If the user asks for math help, give the result or method first.",
-          "If it is a conceptual math question, explain it simply with one short example.",
-          "Keep it classroom-clear, but still useful for adults."
+          "If it is a conceptual math question, explain it simply instead of asking for an expression.",
+          "Use one short example if it helps."
         ]
       : [
           "Si el usuario pide ayuda matematica, da primero el resultado o el metodo.",
-          "Si es una pregunta conceptual de matematicas, explicala de forma simple con un ejemplo corto.",
-          "Debe ser claro para estudiar, pero tambien util para adultos."
+          "Si es una pregunta conceptual de matematicas, explicala de forma simple en lugar de pedir una expresion.",
+          "Usa un ejemplo corto si ayuda."
         ],
     explain: isEnglish
       ? [
           "Explain the concept in simple language.",
-          "If helpful, end with one practical example."
+          "If helpful, end with one practical or simple example."
         ]
       : [
           "Explica el concepto con lenguaje simple.",
-          "Si ayuda, termina con un ejemplo practico."
+          "Si ayuda, termina con un ejemplo simple o practico."
         ],
     write: isEnglish
       ? [
@@ -188,6 +217,24 @@ function getInstructions(locale, intent) {
           "Usa un tono profesional pero cercano, salvo que el usuario pida otro.",
           "No sobreexplique el borrador."
         ],
+    rewrite: isEnglish
+      ? [
+          "Rewrite the provided text clearly and naturally.",
+          "Preserve the original meaning unless the user asks for a stronger rewrite."
+        ]
+      : [
+          "Reescribe el texto de forma clara y natural.",
+          "Conserva el sentido original salvo que el usuario pida un cambio mas fuerte."
+        ],
+    translate: isEnglish
+      ? [
+          "Translate the text faithfully into the requested language.",
+          "Do not turn the translation into a new draft unless the user explicitly asks for rewriting."
+        ]
+      : [
+          "Traduce el texto con fidelidad al idioma solicitado.",
+          "No conviertas la traduccion en un borrador nuevo salvo que el usuario pida reescritura."
+        ],
     summarize: isEnglish
       ? [
           "Summaries must be short and easy to scan.",
@@ -197,6 +244,9 @@ function getInstructions(locale, intent) {
           "Los resumenes deben ser cortos y faciles de leer.",
           "Si el usuario no incluyo el texto fuente, pidelo de forma clara."
         ],
+    multi: isEnglish
+      ? ["The user asked multiple questions. Answer each one briefly in order."]
+      : ["El usuario hizo varias preguntas. Responde cada una brevemente en orden."],
     general: isEnglish
       ? ["Answer as a practical everyday assistant for study, work, and daily tasks."]
       : ["Responde como un asistente practico para estudio, trabajo y tareas del dia a dia."]
@@ -212,6 +262,18 @@ function buildRescueAnswer(prompt, locale, intent) {
     return isEnglish
       ? "Sure. Try this: Hello [Name], I hope you are doing well. I am writing to ask [your request]. Please let me know if this works for you. Thank you."
       : "Claro. Prueba esto: Hola [Nombre], espero que estes bien. Te escribo para solicitar [tu pedido]. Quedo atento a tu confirmacion. Gracias.";
+  }
+
+  if (intent === "translate") {
+    return isEnglish
+      ? "Paste the exact text you want translated and tell me the target language if it is not clear."
+      : "Pega el texto exacto que quieres traducir y dime el idioma de destino si no esta claro.";
+  }
+
+  if (intent === "rewrite") {
+    return isEnglish
+      ? "Paste the exact text you want rewritten and I will make it clearer."
+      : "Pega el texto exacto que quieres reescribir y lo hare mas claro.";
   }
 
   if (intent === "summarize") {
@@ -230,6 +292,12 @@ function buildRescueAnswer(prompt, locale, intent) {
     return isEnglish
       ? "I can help with that. Send the full expression or the exact math question and I will solve it step by step."
       : "Puedo ayudarte con eso. Enviame la expresion completa o la pregunta matematica exacta y la resuelvo paso a paso.";
+  }
+
+  if (intent === "multi") {
+    return isEnglish
+      ? "I can answer both, but it will work better if you separate the questions or add a question mark between them."
+      : "Puedo responder ambas, pero funcionara mejor si separas las preguntas o agregas signos de pregunta entre ellas.";
   }
 
   return isEnglish
