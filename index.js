@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-16-ai-rescue-v3";
+const backendVersion = "2026-04-16-ai-rescue-v5";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -308,6 +308,27 @@ function buildKnownAnswer(prompt, locale) {
   return "";
 }
 
+function buildWriteFallback(prompt, locale) {
+  const text = normalizePromptText(prompt);
+  const isEnglish = locale === "en";
+
+  if (hasAny(text, ["dia libre", "dia de permiso", "pedir permiso", "day off", "time off"])) {
+    return isEnglish
+      ? "Hi, I hope you are doing well. I wanted to ask if I could take one day off. Please let me know if that works or if you need anything from me before then. Thank you."
+      : "Hola, espero que estes bien. Queria pedirte si puedo tomar un dia libre. Por favor dejame saber si esta bien o si necesitas algo de mi antes de ese dia. Gracias.";
+  }
+
+  if (hasAny(text, ["manager", "jefe", "supervisor", "gerente"])) {
+    return isEnglish
+      ? "Hi, I hope you are doing well. I wanted to ask about this request. Please let me know if this works for you or if we should discuss another option. Thank you."
+      : "Hola, espero que estes bien. Queria consultarte sobre esta solicitud. Por favor dejame saber si esta bien o si debemos revisar otra opcion. Gracias.";
+  }
+
+  return isEnglish
+    ? "Sure. Here is a clean draft: Hi, I hope you are doing well. I wanted to ask about this. Please let me know if this works for you. Thank you."
+    : "Claro. Aqui tienes un borrador limpio: Hola, espero que estes bien. Queria consultarte sobre esto. Por favor dejame saber si esta bien. Gracias.";
+}
+
 function buildRescueAnswer(prompt, locale, intent) {
   const isEnglish = locale === "en";
   const knownAnswer = buildKnownAnswer(prompt, locale);
@@ -317,9 +338,7 @@ function buildRescueAnswer(prompt, locale, intent) {
   }
 
   if (intent === "write") {
-    return isEnglish
-      ? "Sure. Try this: Hello [Name], I hope you are doing well. I am writing to ask [your request]. Please let me know if this works for you. Thank you."
-      : "Claro. Prueba esto: Hola [Nombre], espero que estes bien. Te escribo para solicitar [tu pedido]. Quedo atento a tu confirmacion. Gracias.";
+    return buildWriteFallback(prompt, locale);
   }
 
   if (intent === "translate") {
@@ -525,6 +544,10 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
+
+
 
 
 
