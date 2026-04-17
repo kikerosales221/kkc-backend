@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-16-ai-rescue-v5";
+const backendVersion = "2026-04-16-ai-style-v7";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -138,7 +138,7 @@ function classifyIntent(prompt) {
     return "rewrite";
   }
 
-  if (/(write|draft|email|message|mensaje|correo|redacta|redactar|escribe)/i.test(lower)) {
+  if (/(write|draft|email|message|professional|profesional|mensaje|correo|redacta|redactar|escribe)/i.test(lower)) {
     return "write";
   }
 
@@ -209,14 +209,16 @@ function getInstructions(locale, intent) {
         ],
     write: isEnglish
       ? [
-          "When asked to write, produce a clean ready-to-send draft.",
-          "Use a professional but warm tone unless the user asks otherwise.",
-          "Do not over-explain the draft."
+          "When asked to write a message, email, or professional text, produce only a clean ready-to-send draft.",
+          "Use a professional, clear, and structured tone.",
+          "Include an appropriate greeting, a clear body, and a proper closing.",
+          "Do not over-explain the draft or add commentary before it."
         ]
       : [
-          "Cuando te pidan redactar, entrega un borrador limpio y listo para usar.",
-          "Usa un tono profesional pero cercano, salvo que el usuario pida otro.",
-          "No sobreexplique el borrador."
+          "Cuando te pidan redactar un mensaje, correo o texto profesional, entrega solo un borrador limpio y listo para usar.",
+          "Usa un tono profesional, claro y estructurado.",
+          "Incluye saludo adecuado, cuerpo claro y cierre apropiado.",
+          "No sobreexpliques el borrador ni agregues comentarios antes del texto."
         ],
     rewrite: isEnglish
       ? [
@@ -314,8 +316,8 @@ function buildWriteFallback(prompt, locale) {
 
   if (hasAny(text, ["dia libre", "dia de permiso", "pedir permiso", "day off", "time off"])) {
     return isEnglish
-      ? "Hi, I hope you are doing well. I wanted to ask if I could take one day off. Please let me know if that works or if you need anything from me before then. Thank you."
-      : "Hola, espero que estes bien. Queria pedirte si puedo tomar un dia libre. Por favor dejame saber si esta bien o si necesitas algo de mi antes de ese dia. Gracias.";
+      ? "Hello, I hope you are doing well. I would like to request one day off and confirm if it would be possible to take it on the indicated date. Please let me know if you need me to complete any tasks or preparation before that day. Thank you."
+      : "Hola, espero que se encuentre bien. Queria solicitar un dia libre y confirmar si es posible tomarlo en la fecha indicada. Por favor, hagame saber si necesita que complete alguna tarea o preparacion previa antes de ese dia. Quedo atento a su confirmacion. Gracias.";
   }
 
   if (hasAny(text, ["manager", "jefe", "supervisor", "gerente"])) {
@@ -544,6 +546,8 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
 
 
 
