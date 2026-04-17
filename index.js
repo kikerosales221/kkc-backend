@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-16-ai-rescue-v2";
+const backendVersion = "2026-04-16-ai-rescue-v3";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -268,7 +268,7 @@ function normalizePromptText(value) {
 function getResponseLocale(prompt, locale) {
   const text = normalizePromptText(prompt);
 
-  if (/\b(que|como|porque|por que|explica|explicame|traduce|redacta|fraccion|ganancia|flujo)\b/.test(text)) {
+  if (/\b(que|como|porque|por que|ayuda|ayudame|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|fraccion|ganancia|flujo)\b/.test(text)) {
     return "es";
   }
 
@@ -525,6 +525,7 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
 
 
 
