@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-16-ai-write-open-v8";
+const backendVersion = "2026-04-16-ai-write-specific-v9";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -138,7 +138,7 @@ function classifyIntent(prompt) {
     return "rewrite";
   }
 
-  if (/(write|draft|email|message|professional|profesional|mensaje|correo|redacta|redactar|escribe)/i.test(lower)) {
+  if (/(write|draft|email|message|professional|profesional|mensaje|correo|redacta|redactar|escribe|solicita|solicitar|pedir|pide|confirmar|request|ask for)/i.test(lower)) {
     return "write";
   }
 
@@ -212,12 +212,14 @@ function getInstructions(locale, intent) {
           "When asked to write a message, email, or professional text, produce only a clean ready-to-send draft.",
           "Use a professional, clear, and structured tone.",
           "Include an appropriate greeting, a clear body, and a proper closing.",
+          "If details are missing, write a neutral adaptable draft instead of asking questions.",
           "Do not over-explain the draft or add commentary before it."
         ]
       : [
           "Cuando te pidan redactar un mensaje, correo o texto profesional, entrega solo un borrador limpio y listo para usar.",
           "Usa un tono profesional, claro y estructurado.",
           "Incluye saludo adecuado, cuerpo claro y cierre apropiado.",
+          "Si faltan detalles, escribe un borrador neutral adaptable en vez de hacer preguntas.",
           "No sobreexpliques el borrador ni agregues comentarios antes del texto."
         ],
     rewrite: isEnglish
@@ -270,7 +272,7 @@ function normalizePromptText(value) {
 function getResponseLocale(prompt, locale) {
   const text = normalizePromptText(prompt);
 
-  if (/\b(que|como|porque|por que|ayuda|ayudame|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|fraccion|ganancia|flujo)\b/.test(text)) {
+  if (/\b(que|como|porque|por que|ayuda|ayudame|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|solicita|solicitar|pedir|confirmar|reunion|disculpa|seguimiento|fraccion|ganancia|flujo)\b/.test(text)) {
     return "es";
   }
 
@@ -310,54 +312,52 @@ function buildKnownAnswer(prompt, locale) {
   return "";
 }
 
-function getWriteTopic(text, isEnglish) {
+function buildWriteFallback(prompt, locale) {
+  const text = normalizePromptText(prompt);
+  const isEnglish = locale === "en";
+
   if (hasAny(text, ["dia libre", "dia de permiso", "pedir permiso", "day off", "time off"])) {
     return isEnglish
-      ? "one day off"
-      : "un dia libre";
+      ? "Hello, I hope you are doing well. I would like to request one day off and confirm if it would be possible. Please let me know if you need me to complete anything before that day. Thank you for your time. I look forward to your confirmation."
+      : "Hola, espero que se encuentre bien. Queria solicitar un dia libre y confirmar si seria posible tomarlo. Por favor, hagame saber si necesita que complete algo antes de ese dia. Gracias por su tiempo. Quedo atento a su confirmacion.";
   }
 
   if (hasAny(text, ["reunion", "meeting", "cita", "appointment"])) {
     return isEnglish
-      ? "a meeting or appointment"
-      : "una reunion o cita";
+      ? "Hello, I hope you are doing well. I would like to schedule a meeting to discuss this topic in more detail. Please let me know what day and time would work best for you. Thank you."
+      : "Hola, espero que se encuentre bien. Queria solicitar una reunion para conversar este tema con mas detalle. Por favor, hagame saber que dia y hora le vendria mejor. Gracias.";
   }
 
   if (hasAny(text, ["disculpa", "perdon", "sorry", "apology", "apologize"])) {
     return isEnglish
-      ? "an apology"
-      : "una disculpa";
+      ? "Hello, I hope you are doing well. I wanted to sincerely apologize for the situation. I understand the inconvenience this may have caused and will make sure to handle it more carefully going forward. Thank you for your understanding."
+      : "Hola, espero que se encuentre bien. Queria ofrecerle una disculpa sincera por lo ocurrido. Entiendo las molestias que esto pudo causar y me asegurare de manejarlo con mas cuidado en adelante. Gracias por su comprension.";
   }
 
   if (hasAny(text, ["seguimiento", "follow up", "respuesta", "reply", "respond", "responder"])) {
     return isEnglish
-      ? "a follow-up"
-      : "un seguimiento";
+      ? "Hello, I hope you are doing well. I wanted to follow up on my previous message and check if there are any updates when you have a chance. Thank you for your time. I look forward to your response."
+      : "Hola, espero que se encuentre bien. Queria dar seguimiento a mi mensaje anterior y consultar si hay alguna novedad cuando tenga oportunidad. Gracias por su tiempo. Quedo atento a su respuesta.";
   }
 
   if (hasAny(text, ["aumento", "raise", "salario", "salary", "pago", "payment"])) {
     return isEnglish
-      ? "a work or payment request"
-      : "una solicitud laboral o de pago";
+      ? "Hello, I hope you are doing well. I would like to discuss a work-related compensation matter when you have a chance. Please let me know a convenient time to talk. Thank you."
+      : "Hola, espero que se encuentre bien. Queria conversar sobre un tema relacionado con compensacion laboral cuando tenga oportunidad. Por favor, hagame saber un momento conveniente para hablar. Gracias.";
   }
-
-  if (hasAny(text, ["manager", "jefe", "supervisor", "gerente"])) {
-    return isEnglish
-      ? "a request to your manager"
-      : "una solicitud para tu supervisor";
-  }
-
-  return isEnglish ? "this request" : "esta solicitud";
-}
-
-function buildWriteFallback(prompt, locale) {
-  const text = normalizePromptText(prompt);
-  const isEnglish = locale === "en";
-  const topic = getWriteTopic(text, isEnglish);
 
   return isEnglish
-    ? `Hello, I hope you are doing well. I would like to ask about ${topic}. Please let me know if this would be possible or if you need any additional information from me. Thank you for your time. I look forward to your confirmation.`
-    : `Hola, espero que se encuentre bien. Queria consultarle sobre ${topic}. Por favor, hagame saber si seria posible o si necesita alguna informacion adicional de mi parte. Gracias por su tiempo. Quedo atento a su confirmacion.`;
+    ? "Hello, I hope you are doing well. I wanted to contact you regarding this request. Please let me know if it would be possible or if you need any additional information from me. Thank you for your time. I look forward to your response."
+    : "Hola, espero que se encuentre bien. Queria contactarle respecto a esta solicitud. Por favor, hagame saber si seria posible o si necesita alguna informacion adicional de mi parte. Gracias por su tiempo. Quedo atento a su respuesta.";
+}
+
+function isClarifyingWriteAnswer(answer, locale) {
+  const text = normalizePromptText(answer);
+  if (!text) {
+    return true;
+  }
+
+  return /\b(a quien|quien va dirigido|cual es|cuál es|motivo|objetivo|plazos|detalles|who is|who should|what is|could you provide|please provide)\b/.test(text);
 }
 
 function buildRescueAnswer(prompt, locale, intent) {
@@ -528,7 +528,7 @@ app.post("/api/ask", async (req, res) => {
 
     lastOpenAIError = null;
 
-    if (!answer) {
+    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -575,6 +575,9 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
+
 
 
 
