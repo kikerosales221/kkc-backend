@@ -1,4 +1,4 @@
-import express from "express";
+﻿import express from "express";
 import cors from "cors";
 import { config } from "dotenv";
 import { OpenAI } from "openai";
@@ -8,6 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+const backendVersion = "2026-04-16-ai-rescue-v2";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -107,12 +108,12 @@ function extractTextFromResponseOutput(response) {
 }
 
 function hasMultipleQuestions(prompt) {
-  const matches = prompt.match(/[??]/g);
+  const matches = prompt.match(/[?¿]/g);
   if (matches && matches.length > 1) {
     return true;
   }
 
-  const lower = prompt.toLowerCase();
+  const lower = prompt.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const starters = lower.match(/\b(what is|what are|how do|how does|why|can you|explain|define|que es|como|por que|explica|define)\b/g);
   return Boolean(starters && starters.length > 1);
 }
@@ -255,8 +256,65 @@ function getInstructions(locale, intent) {
   return [...shared, ...(intentInstructions[intent] || intentInstructions.general)].join(" ");
 }
 
+function normalizePromptText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getResponseLocale(prompt, locale) {
+  const text = normalizePromptText(prompt);
+
+  if (/\b(que|como|porque|por que|explica|explicame|traduce|redacta|fraccion|ganancia|flujo)\b/.test(text)) {
+    return "es";
+  }
+
+  if (/\b(what|how|why|explain|translate|write|fraction|profit|cash flow)\b/.test(text)) {
+    return "en";
+  }
+
+  return locale === "en" ? "en" : "es";
+}
+
+function hasAny(text, words) {
+  return words.some((word) => text.includes(word));
+}
+
+function buildKnownAnswer(prompt, locale) {
+  const text = normalizePromptText(prompt);
+  const isEnglish = locale === "en";
+
+  if (hasAny(text, ["fraccion equivalente", "equivalent fraction"])) {
+    return isEnglish
+      ? "An equivalent fraction is a fraction that has the same value as another fraction, even if the numbers look different. Example: 1/2 and 2/4 are equivalent because both represent one half."
+      : "Una fraccion equivalente es una fraccion que representa el mismo valor que otra, aunque tenga numeros diferentes. Ejemplo: 1/2 y 2/4 son equivalentes porque ambas representan la mitad.";
+  }
+
+  if (hasAny(text, ["cash flow", "flujo de caja", "flujo de efectivo"])) {
+    return isEnglish
+      ? "Cash flow is the money moving in and out of a business. Positive cash flow means more money comes in than goes out; negative cash flow means more money goes out than comes in."
+      : "El cash flow o flujo de caja es el dinero que entra y sale de un negocio. Si entra mas dinero del que sale, el flujo es positivo; si sale mas del que entra, es negativo.";
+  }
+
+  if (hasAny(text, ["profit", "ganancia", "beneficio", "utilidad"])) {
+    return isEnglish
+      ? "Profit is the money left after subtracting costs and expenses from income. Example: if you sell $100 and spend $70, your profit is $30."
+      : "La ganancia es el dinero que queda despues de restar costos y gastos a los ingresos. Ejemplo: si vendes $100 y gastas $70, tu ganancia es $30.";
+  }
+
+  return "";
+}
+
 function buildRescueAnswer(prompt, locale, intent) {
   const isEnglish = locale === "en";
+  const knownAnswer = buildKnownAnswer(prompt, locale);
+
+  if (knownAnswer) {
+    return knownAnswer;
+  }
 
   if (intent === "write") {
     return isEnglish
@@ -284,8 +342,8 @@ function buildRescueAnswer(prompt, locale, intent) {
 
   if (intent === "explain") {
     return isEnglish
-      ? "I can explain it, but I need the exact concept or question written in one complete sentence."
-      : "Puedo explicarlo, pero necesito el concepto o la pregunta exacta en una frase completa.";
+      ? "In simple terms, this is asking for an explanation of a concept. I can help: send the exact topic or add one example, and I will explain it clearly with a short example."
+      : "En palabras simples, esta pregunta pide explicar un concepto. Puedo ayudarte: envia el tema exacto o agrega un ejemplo y lo explico claro con un ejemplo corto.";
   }
 
   if (intent === "calculate") {
@@ -296,13 +354,13 @@ function buildRescueAnswer(prompt, locale, intent) {
 
   if (intent === "multi") {
     return isEnglish
-      ? "I can answer both, but it will work better if you separate the questions or add a question mark between them."
-      : "Puedo responder ambas, pero funcionara mejor si separas las preguntas o agregas signos de pregunta entre ellas.";
+      ? "I can answer multiple questions. If the AI response is unavailable, try sending each question separately so I can give a cleaner answer."
+      : "Puedo responder varias preguntas. Si la respuesta de IA no esta disponible, envia cada pregunta por separado para darte una respuesta mas limpia.";
   }
 
   return isEnglish
-    ? "Your request looks incomplete. Finish the sentence or add one more detail and I will try again."
-    : "Tu solicitud parece incompleta. Termina la frase o agrega un detalle mas y lo intento de nuevo.";
+    ? "I can help with that. Please add one specific detail so I can answer clearly."
+    : "Puedo ayudarte con eso. Agrega un detalle especifico para responderte con mas claridad.";
 }
 
 async function requestAnswer(prompt, locale, intent) {
@@ -354,6 +412,7 @@ app.get("/api/health", (req, res) => {
           : "configured";
 
   res.json({
+    backendVersion,
     ok: configured && !lastOpenAIError,
     configured,
     providerStatus,
@@ -413,13 +472,14 @@ app.post("/api/ask", async (req, res) => {
 
   try {
     const intent = classifyIntent(prompt);
-    const { answer: rawAnswer, apiMode } = await requestAnswer(prompt, locale, intent);
+    const responseLocale = getResponseLocale(prompt, locale);
+    const { answer: rawAnswer, apiMode } = await requestAnswer(prompt, responseLocale, intent);
     let answer = rawAnswer;
 
     lastOpenAIError = null;
 
     if (!answer) {
-      answer = buildRescueAnswer(prompt, locale, intent);
+      answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
     const updatedUsage = getUsageInfo(req);
@@ -462,6 +522,10 @@ app.post("/api/ask", async (req, res) => {
 app.listen(port, () => {
   console.log(`KKC Backend running on http://localhost:${port}`);
   console.log(`Model: ${model}`);
+  console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
+
 
