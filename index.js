@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-16-ai-style-v7";
+const backendVersion = "2026-04-16-ai-write-open-v8";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -310,25 +310,54 @@ function buildKnownAnswer(prompt, locale) {
   return "";
 }
 
-function buildWriteFallback(prompt, locale) {
-  const text = normalizePromptText(prompt);
-  const isEnglish = locale === "en";
-
+function getWriteTopic(text, isEnglish) {
   if (hasAny(text, ["dia libre", "dia de permiso", "pedir permiso", "day off", "time off"])) {
     return isEnglish
-      ? "Hello, I hope you are doing well. I would like to request one day off and confirm if it would be possible to take it on the indicated date. Please let me know if you need me to complete any tasks or preparation before that day. Thank you."
-      : "Hola, espero que se encuentre bien. Queria solicitar un dia libre y confirmar si es posible tomarlo en la fecha indicada. Por favor, hagame saber si necesita que complete alguna tarea o preparacion previa antes de ese dia. Quedo atento a su confirmacion. Gracias.";
+      ? "one day off"
+      : "un dia libre";
+  }
+
+  if (hasAny(text, ["reunion", "meeting", "cita", "appointment"])) {
+    return isEnglish
+      ? "a meeting or appointment"
+      : "una reunion o cita";
+  }
+
+  if (hasAny(text, ["disculpa", "perdon", "sorry", "apology", "apologize"])) {
+    return isEnglish
+      ? "an apology"
+      : "una disculpa";
+  }
+
+  if (hasAny(text, ["seguimiento", "follow up", "respuesta", "reply", "respond", "responder"])) {
+    return isEnglish
+      ? "a follow-up"
+      : "un seguimiento";
+  }
+
+  if (hasAny(text, ["aumento", "raise", "salario", "salary", "pago", "payment"])) {
+    return isEnglish
+      ? "a work or payment request"
+      : "una solicitud laboral o de pago";
   }
 
   if (hasAny(text, ["manager", "jefe", "supervisor", "gerente"])) {
     return isEnglish
-      ? "Hi, I hope you are doing well. I wanted to ask about this request. Please let me know if this works for you or if we should discuss another option. Thank you."
-      : "Hola, espero que estes bien. Queria consultarte sobre esta solicitud. Por favor dejame saber si esta bien o si debemos revisar otra opcion. Gracias.";
+      ? "a request to your manager"
+      : "una solicitud para tu supervisor";
   }
 
+  return isEnglish ? "this request" : "esta solicitud";
+}
+
+function buildWriteFallback(prompt, locale) {
+  const text = normalizePromptText(prompt);
+  const isEnglish = locale === "en";
+  const topic = getWriteTopic(text, isEnglish);
+
   return isEnglish
-    ? "Sure. Here is a clean draft: Hi, I hope you are doing well. I wanted to ask about this. Please let me know if this works for you. Thank you."
-    : "Claro. Aqui tienes un borrador limpio: Hola, espero que estes bien. Queria consultarte sobre esto. Por favor dejame saber si esta bien. Gracias.";
+    ? `Hello, I hope you are doing well. I would like to ask about ${topic}. Please let me know if this would be possible or if you need any additional information from me. Thank you for your time. I look forward to your confirmation.`
+    : `Hola, espero que se encuentre bien. Queria consultarle sobre ${topic}. Por favor, hagame saber si seria posible o si necesita alguna informacion adicional de mi parte. Gracias por su tiempo. Quedo atento a su confirmacion.`;
 }
 
 function buildRescueAnswer(prompt, locale, intent) {
@@ -546,6 +575,7 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
 
 
 
