@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-16-ai-write-specific-v9";
+const backendVersion = "2026-04-17-ai-intent-polish-v10";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -114,8 +114,8 @@ function hasMultipleQuestions(prompt) {
   }
 
   const lower = prompt.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  const starters = lower.match(/\b(what is|what are|how do|how does|why|can you|explain|define|que es|como|por que|explica|define)\b/g);
-  return Boolean(starters && starters.length > 1);
+  const questionStarters = lower.match(/\b(what is|what are|how do|how does|why|que es|como|por que)\b/g);
+  return Boolean(questionStarters && questionStarters.length > 1);
 }
 
 function isLikelyMathExpression(text) {
@@ -136,6 +136,10 @@ function classifyIntent(prompt) {
 
   if (/(rewrite|rewrite this|reescribe|reformular|rephrase|improve this text|mejora este texto)/i.test(lower)) {
     return "rewrite";
+  }
+
+  if (/(list|lista|checklist|cosas que debo revisar|things to check|organiza|organizar|tareas|pasos|steps)/i.test(lower)) {
+    return "list";
   }
 
   if (/(write|draft|email|message|professional|profesional|mensaje|correo|redacta|redactar|escribe|solicita|solicitar|pedir|pide|confirmar|request|ask for)/i.test(lower)) {
@@ -252,6 +256,9 @@ function getInstructions(locale, intent) {
     multi: isEnglish
       ? ["The user asked multiple questions. Answer each one briefly in order."]
       : ["El usuario hizo varias preguntas. Responde cada una brevemente en orden."],
+    list: isEnglish
+      ? ["Return a short practical list with 3 to 5 bullets.", "Do not write it as an email or formal message."]
+      : ["Devuelve una lista corta y practica de 3 a 5 puntos.", "No lo escribas como correo ni mensaje formal."],
     general: isEnglish
       ? ["Answer as a practical everyday assistant for study, work, and daily tasks."]
       : ["Responde como un asistente practico para estudio, trabajo y tareas del dia a dia."]
@@ -272,7 +279,7 @@ function normalizePromptText(value) {
 function getResponseLocale(prompt, locale) {
   const text = normalizePromptText(prompt);
 
-  if (/\b(que|como|porque|por que|ayuda|ayudame|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|solicita|solicitar|pedir|confirmar|reunion|disculpa|seguimiento|fraccion|ganancia|flujo)\b/.test(text)) {
+  if (/\b(que|como|porque|por que|ayuda|ayudame|haz|lista|cosas|tareas|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|solicita|solicitar|pedir|confirmar|reunion|disculpa|seguimiento|fraccion|factura|ganancia|flujo)\b/.test(text)) {
     return "es";
   }
 
@@ -309,12 +316,44 @@ function buildKnownAnswer(prompt, locale) {
       : "La ganancia es el dinero que queda despues de restar costos y gastos a los ingresos. Ejemplo: si vendes $100 y gastas $70, tu ganancia es $30.";
   }
 
+  if (hasAny(text, ["factura", "invoice"])) {
+    return isEnglish
+      ? "An invoice is a document that shows what was sold, how much it costs, and how much the customer needs to pay. In simple words, it is a formal bill for a product or service."
+      : "Una factura es un documento que muestra que se vendio, cuanto cuesta y cuanto debe pagar el cliente. En palabras simples, es una cuenta formal por un producto o servicio.";
+  }
+
   return "";
+}
+
+function buildListFallback(prompt, locale) {
+  const isEnglish = locale === "en";
+
+  return isEnglish
+    ? "- Confirm the main point is clear.\n- Check names, dates, and important details.\n- Make sure the tone is respectful and professional.\n- Remove unnecessary words.\n- Read it once before sending."
+    : "- Confirma que la idea principal este clara.\n- Revisa nombres, fechas y detalles importantes.\n- Asegurate de que el tono sea respetuoso y profesional.\n- Quita palabras innecesarias.\n- Leelo una vez antes de enviarlo.";
 }
 
 function buildWriteFallback(prompt, locale) {
   const text = normalizePromptText(prompt);
   const isEnglish = locale === "en";
+
+  if (hasAny(text, ["cambio de horario", "cambiar horario", "change schedule", "schedule change"])) {
+    return isEnglish
+      ? "Hello, I hope you are doing well. I would like to request a schedule change and confirm if it would be possible. Please let me know what options are available or if you need any additional information from me. Thank you."
+      : "Hola, espero que se encuentre bien. Queria solicitar un cambio de horario y confirmar si seria posible. Por favor, hagame saber que opciones estan disponibles o si necesita alguna informacion adicional de mi parte. Gracias.";
+  }
+
+  if (hasAny(text, ["llegare tarde", "voy a llegar tarde", "llegar tarde", "running late", "be late", "arrive late"])) {
+    return isEnglish
+      ? "Hello, I hope you are doing well. I wanted to let you know that I may arrive late today. I apologize for the inconvenience and will do my best to arrive as soon as possible. Thank you for your understanding."
+      : "Hola, espero que se encuentre bien. Queria avisarle que podria llegar tarde hoy. Disculpe las molestias y hare lo posible por llegar lo antes posible. Gracias por su comprension.";
+  }
+
+  if (hasAny(text, ["cancelar una reunion", "cancelar reunion", "cancel meeting", "cancel a meeting"])) {
+    return isEnglish
+      ? "Hello, I hope you are doing well. I wanted to let you know that I need to cancel our meeting. I apologize for any inconvenience and would be happy to reschedule for another time that works for you. Thank you for your understanding."
+      : "Hola, espero que se encuentre bien. Queria avisarle que necesito cancelar nuestra reunion. Disculpe cualquier inconveniente y con gusto podemos reprogramarla para otro momento que le funcione mejor. Gracias por su comprension.";
+  }
 
   if (hasAny(text, ["dia libre", "dia de permiso", "pedir permiso", "day off", "time off"])) {
     return isEnglish
@@ -360,6 +399,11 @@ function isClarifyingWriteAnswer(answer, locale) {
   return /\b(a quien|quien va dirigido|cual es|cuál es|motivo|objetivo|plazos|detalles|who is|who should|what is|could you provide|please provide)\b/.test(text);
 }
 
+function isFormalDraftAnswer(answer) {
+  const text = normalizePromptText(answer);
+  return /\b(hola, espero que se encuentre bien|hello, i hope you are doing well|quedo atento|i look forward)\b/.test(text);
+}
+
 function buildRescueAnswer(prompt, locale, intent) {
   const isEnglish = locale === "en";
   const knownAnswer = buildKnownAnswer(prompt, locale);
@@ -370,6 +414,10 @@ function buildRescueAnswer(prompt, locale, intent) {
 
   if (intent === "write") {
     return buildWriteFallback(prompt, locale);
+  }
+
+  if (intent === "list") {
+    return buildListFallback(prompt, locale);
   }
 
   if (intent === "translate") {
@@ -528,7 +576,7 @@ app.post("/api/ask", async (req, res) => {
 
     lastOpenAIError = null;
 
-    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale))) {
+    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -575,6 +623,10 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
+
+
 
 
 
