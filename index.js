@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-17-ai-suggestions-v11";
+const backendVersion = "2026-04-17-ai-suggestions-v12";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -447,6 +447,22 @@ function isClarifyingWriteAnswer(answer, locale) {
   return /\b(a quien|quien va dirigido|cual es|cuál es|motivo|objetivo|plazos|detalles|who is|who should|what is|could you provide|please provide)\b/.test(text);
 }
 
+function isBadTransformAnswer(prompt, answer) {
+  const request = normalizePromptText(prompt);
+  const text = String(answer || "").trim();
+  const normalizedAnswer = normalizePromptText(answer);
+
+  if (/\b(puntos|bullet|bullet points|3 puntos)\b/.test(request)) {
+    return !/^\s*(-|\d+[.)])\s+/m.test(text);
+  }
+
+  if (/\b(mas corta|mas corto|shorter)\b/.test(request)) {
+    return normalizedAnswer.length > 260;
+  }
+
+  return false;
+}
+
 function isGenericExplainFallback(answer) {
   const text = normalizePromptText(answer);
   return /\b(esta pregunta pide explicar un concepto|this is asking for an explanation of a concept|send the exact topic|envia el tema exacto)\b/.test(text);
@@ -633,7 +649,7 @@ app.post("/api/ask", async (req, res) => {
 
     lastOpenAIError = null;
 
-    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && isGenericExplainFallback(answer))) {
+    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -680,6 +696,7 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
 
 
 
