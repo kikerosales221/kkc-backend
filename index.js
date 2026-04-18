@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-17-ai-suggestions-v12";
+const backendVersion = "2026-04-17-ai-suggestions-v13";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -447,6 +447,11 @@ function isClarifyingWriteAnswer(answer, locale) {
   return /\b(a quien|quien va dirigido|cual es|cuál es|motivo|objetivo|plazos|detalles|who is|who should|what is|could you provide|please provide)\b/.test(text);
 }
 
+function shouldForceTransformFallback(prompt) {
+  const request = normalizePromptText(prompt);
+  return /\b(puntos|bullet|bullet points|3 puntos|en puntos)\b/.test(request);
+}
+
 function isBadTransformAnswer(prompt, answer) {
   const request = normalizePromptText(prompt);
   const text = String(answer || "").trim();
@@ -649,7 +654,9 @@ app.post("/api/ask", async (req, res) => {
 
     lastOpenAIError = null;
 
-    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
+    if (intent === "transform" && shouldForceTransformFallback(prompt)) {
+      answer = buildRescueAnswer(prompt, responseLocale, intent);
+    } else if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -696,6 +703,7 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
 
 
 
