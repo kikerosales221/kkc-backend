@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-17-ai-suggestions-v13";
+const backendVersion = "2026-04-17-ai-suggestions-v14";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -364,7 +364,16 @@ function buildTransformFallback(prompt, locale) {
   }
 
   if (/\b(bullet|puntos|lista)\b/i.test(prompt)) {
-    const parts = source.split(/[.!?;]/).map((part) => part.trim()).filter(Boolean).slice(0, 3);
+    let parts = source
+      .split(/[.!?;]|,|\s+y\s+|\s+and\s+/i)
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .slice(0, 3);
+
+    if (parts.length < 2) {
+      parts = source.split(/\s{2,}/).map((part) => part.trim()).filter(Boolean).slice(0, 3);
+    }
+
     return parts.map((part) => `- ${part}`).join("\n");
   }
 
@@ -703,6 +712,7 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
 
 
 
