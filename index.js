@@ -658,14 +658,31 @@ app.post("/api/ask", async (req, res) => {
   try {
     const intent = classifyIntent(prompt);
     const responseLocale = getResponseLocale(prompt, locale);
+
+    if (intent === "transform" && shouldForceTransformFallback(prompt)) {
+      lastOpenAIError = null;
+      const updatedUsage = getUsageInfo(req);
+
+      return res.json({
+        answer: buildRescueAnswer(prompt, responseLocale, intent),
+        model,
+        apiMode: "local-transform",
+        providerStatus: "ok",
+        intent,
+        dailyLimit: updatedUsage.dailyLimit,
+        usedToday: updatedUsage.usedToday,
+        remainingToday: updatedUsage.remainingToday,
+        adminBypassActive: updatedUsage.adminBypassActive,
+        adminTokenProvided: updatedUsage.adminTokenProvided
+      });
+    }
+
     const { answer: rawAnswer, apiMode } = await requestAnswer(prompt, responseLocale, intent);
     let answer = rawAnswer;
 
     lastOpenAIError = null;
 
-    if (intent === "transform" && shouldForceTransformFallback(prompt)) {
-      answer = buildRescueAnswer(prompt, responseLocale, intent);
-    } else if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
+    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -712,6 +729,7 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
 
 
 
