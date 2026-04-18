@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-17-ai-intent-polish-v10";
+const backendVersion = "2026-04-17-ai-suggestions-v11";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -126,6 +126,10 @@ function classifyIntent(prompt) {
   const text = prompt.trim();
   const lower = text.toLowerCase();
 
+  if (/(explain this more clearly|explica esto con palabras|make this answer|haz esta respuesta|turn this answer|convierte esta respuesta|rewrite this answer|reescribe esta respuesta)/i.test(lower)) {
+    return "transform";
+  }
+
   if (/(translate|traduce|traduceme|translate this|translate to|al espanol|to spanish|to english|al ingles)/i.test(lower)) {
     return "translate";
   }
@@ -235,6 +239,17 @@ function getInstructions(locale, intent) {
           "Reescribe el texto de forma clara y natural.",
           "Conserva el sentido original salvo que el usuario pida un cambio mas fuerte."
         ],
+    transform: isEnglish
+      ? [
+          "The user is asking to improve, simplify, shorten, or reformat a previous answer.",
+          "Transform the text after the colon according to the request.",
+          "Do not ask for the topic again. Do not explain what you are doing."
+        ]
+      : [
+          "El usuario pide mejorar, simplificar, acortar o cambiar formato de una respuesta anterior.",
+          "Transforma el texto despues de los dos puntos segun la solicitud.",
+          "No pidas el tema otra vez. No expliques lo que haces."
+        ],
     translate: isEnglish
       ? [
           "Translate the text faithfully into the requested language.",
@@ -325,6 +340,39 @@ function buildKnownAnswer(prompt, locale) {
   return "";
 }
 
+function getTextAfterColon(prompt) {
+  const index = String(prompt || "").indexOf(":");
+  if (index === -1) {
+    return "";
+  }
+
+  return String(prompt || "").slice(index + 1).trim();
+}
+
+function buildTransformFallback(prompt, locale) {
+  const isEnglish = locale === "en";
+  const source = getTextAfterColon(prompt);
+
+  if (!source) {
+    return isEnglish
+      ? "Send the answer you want me to improve and I will make it clearer."
+      : "Envia la respuesta que quieres mejorar y la hare mas clara.";
+  }
+
+  if (/\b(shorter|mas corta|más corta)\b/i.test(prompt)) {
+    return source.split(/[.!?]/).map((part) => part.trim()).filter(Boolean).slice(0, 2).join(". ") + ".";
+  }
+
+  if (/\b(bullet|puntos|lista)\b/i.test(prompt)) {
+    const parts = source.split(/[.!?;]/).map((part) => part.trim()).filter(Boolean).slice(0, 3);
+    return parts.map((part) => `- ${part}`).join("\n");
+  }
+
+  return isEnglish
+    ? `In simpler words: ${source}`
+    : `En palabras mas simples: ${source}`;
+}
+
 function buildListFallback(prompt, locale) {
   const isEnglish = locale === "en";
 
@@ -399,6 +447,11 @@ function isClarifyingWriteAnswer(answer, locale) {
   return /\b(a quien|quien va dirigido|cual es|cuál es|motivo|objetivo|plazos|detalles|who is|who should|what is|could you provide|please provide)\b/.test(text);
 }
 
+function isGenericExplainFallback(answer) {
+  const text = normalizePromptText(answer);
+  return /\b(esta pregunta pide explicar un concepto|this is asking for an explanation of a concept|send the exact topic|envia el tema exacto)\b/.test(text);
+}
+
 function isFormalDraftAnswer(answer) {
   const text = normalizePromptText(answer);
   return /\b(hola, espero que se encuentre bien|hello, i hope you are doing well|quedo atento|i look forward)\b/.test(text);
@@ -430,6 +483,10 @@ function buildRescueAnswer(prompt, locale, intent) {
     return isEnglish
       ? "Paste the exact text you want rewritten and I will make it clearer."
       : "Pega el texto exacto que quieres reescribir y lo hare mas claro.";
+  }
+
+  if (intent === "transform") {
+    return buildTransformFallback(prompt, locale);
   }
 
   if (intent === "summarize") {
@@ -576,7 +633,7 @@ app.post("/api/ask", async (req, res) => {
 
     lastOpenAIError = null;
 
-    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer))) {
+    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && isGenericExplainFallback(answer))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -623,6 +680,8 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
 
 
 
