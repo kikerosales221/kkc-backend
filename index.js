@@ -8,7 +8,7 @@ config();
 const app = express();
 const port = Number(process.env.PORT || 3001);
 const model = process.env.OPENAI_MODEL || "gpt-5-mini";
-const backendVersion = "2026-04-17-ai-suggestions-v16";
+const backendVersion = "2026-04-20-ai-polish-v18";
 const apiKey = process.env.OPENAI_API_KEY;
 const dailyAiLimit = Number(process.env.DAILY_AI_LIMIT || 5);
 const adminBypassToken = process.env.ADMIN_BYPASS_TOKEN || "";
@@ -142,7 +142,7 @@ function classifyIntent(prompt) {
     return "rewrite";
   }
 
-  if (/(list|lista|checklist|cosas que debo revisar|things to check|organiza|organizar|tareas|pasos|steps)/i.test(lower)) {
+  if (/(list|lista|checklist|cosas que debo revisar|things to check|organiza|organizar|tareas|pasos|steps|ideas|opciones|tips|consejos)/i.test(lower)) {
     return "list";
   }
 
@@ -160,12 +160,12 @@ function classifyIntent(prompt) {
 
   if (
     isLikelyMathExpression(text) ||
-    /(solve|calculate|calc|equation|porcentaje|calcula|resuelve|ecuacion|operacion)/i.test(lower)
+    /(solve|calculate|calc|equation|calcula|resuelve|ecuacion|operacion)/i.test(lower)
   ) {
     return "calculate";
   }
 
-  if (/(fraction|fractions|fraccion|fracciones|math concept|mathematical concept|geometr|algebra|decimal|percentage)/i.test(lower)) {
+  if (/(fraction|fractions|fraccion|fracciones|math concept|mathematical concept|geometr|algebra|decimal|percentage|porcentaje)/i.test(lower)) {
     return "explain";
   }
 
@@ -294,7 +294,7 @@ function normalizePromptText(value) {
 function getResponseLocale(prompt, locale) {
   const text = normalizePromptText(prompt);
 
-  if (/\b(que|como|porque|por que|ayuda|ayudame|haz|lista|cosas|tareas|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|solicita|solicitar|pedir|confirmar|reunion|disculpa|seguimiento|fraccion|factura|ganancia|flujo)\b/.test(text)) {
+  if (/\b(que|como|porque|por que|ayuda|ayudame|haz|lista|cosas|tareas|ideas|checklist|explica|explicame|traduce|traduceme|redacta|redactar|escribe|mensaje|correo|solicita|solicitar|pedir|confirmar|reunion|disculpa|seguimiento|fraccion|factura|ganancia|flujo|inventario|servicio|cliente|porcentaje)\b/.test(text)) {
     return "es";
   }
 
@@ -325,6 +325,12 @@ function buildKnownAnswer(prompt, locale) {
       : "El cash flow o flujo de caja es el dinero que entra y sale de un negocio. Si entra mas dinero del que sale, el flujo es positivo; si sale mas del que entra, es negativo.";
   }
 
+  if ((hasAny(text, ["ingreso"]) && hasAny(text, ["ganancia"])) || (hasAny(text, ["income"]) && hasAny(text, ["profit"]))) {
+    return isEnglish
+      ? "Income is all the money you receive from sales or work before expenses. Profit is the money left after subtracting costs and expenses from that income."
+      : "El ingreso es todo el dinero que recibes por ventas o trabajo antes de restar gastos. La ganancia es el dinero que queda despues de restar costos y gastos a ese ingreso.";
+  }
+
   if (hasAny(text, ["profit", "ganancia", "beneficio", "utilidad"])) {
     return isEnglish
       ? "Profit is the money left after subtracting costs and expenses from income. Example: if you sell $100 and spend $70, your profit is $30."
@@ -335,6 +341,24 @@ function buildKnownAnswer(prompt, locale) {
     return isEnglish
       ? "An invoice is a document that shows what was sold, how much it costs, and how much the customer needs to pay. In simple words, it is a formal bill for a product or service."
       : "Una factura es un documento que muestra que se vendio, cuanto cuesta y cuanto debe pagar el cliente. En palabras simples, es una cuenta formal por un producto o servicio.";
+  }
+
+  if (hasAny(text, ["inventario", "inventory"])) {
+    return isEnglish
+      ? "Inventory is the products or materials a business has available to sell or use. For a small business, keeping inventory organized helps avoid running out of items or buying too much."
+      : "El inventario es la lista de productos o materiales que un negocio tiene disponibles para vender o usar. En un negocio pequeno, ayuda a saber que hay, que falta y que se debe reponer.";
+  }
+
+  if (hasAny(text, ["servicio al cliente", "customer service"])) {
+    return isEnglish
+      ? "Customer service is the help a business gives before, during, and after a sale. It includes answering questions, solving problems, and treating customers with respect."
+      : "El servicio al cliente es la ayuda que un negocio da antes, durante y despues de una venta. Incluye responder preguntas, resolver problemas y tratar al cliente con respeto.";
+  }
+
+  if (hasAny(text, ["porcentaje", "percentage"])) {
+    return isEnglish
+      ? "A percentage is a way to show a part out of 100. Example: 20% means 20 out of 100; if something costs $100, 20% is $20."
+      : "Un porcentaje es una forma de mostrar una parte de 100. Ejemplo: 20% significa 20 de cada 100; si algo cuesta $100, el 20% son $20.";
   }
 
   return "";
@@ -393,7 +417,26 @@ function buildTransformFallback(prompt, locale) {
 }
 
 function buildListFallback(prompt, locale) {
+  const text = normalizePromptText(prompt);
   const isEnglish = locale === "en";
+
+  if (hasAny(text, ["dia de trabajo", "organizar mi dia", "organizar el dia", "work day"])) {
+    return isEnglish
+      ? "- Write down your top 3 priorities.\n- Put urgent tasks first.\n- Block time for calls, messages, and focused work.\n- Take short breaks so you do not burn out.\n- Review what is left before the day ends."
+      : "- Anota tus 3 prioridades principales.\n- Pon primero las tareas urgentes.\n- Reserva tiempo para llamadas, mensajes y trabajo enfocado.\n- Toma descansos cortos para no agotarte.\n- Revisa lo pendiente antes de terminar el dia.";
+  }
+
+  if (hasAny(text, ["revisar una factura", "checklist", "factura", "invoice"])) {
+    return isEnglish
+      ? "- Check the customer name and contact information.\n- Confirm the product or service details.\n- Review prices, taxes, and totals.\n- Verify the due date and payment method.\n- Save or send a copy for your records."
+      : "- Revisa el nombre del cliente y sus datos.\n- Confirma los productos o servicios incluidos.\n- Verifica precios, impuestos y total.\n- Revisa fecha de pago y metodo de pago.\n- Guarda o envia una copia para tus registros.";
+  }
+
+  if (hasAny(text, ["cliente molesto", "angry customer", "upset customer", "cliente enojado"])) {
+    return isEnglish
+      ? "- Acknowledge the problem calmly.\n- Apologize for the inconvenience.\n- Ask one clear question to understand the issue.\n- Offer a practical next step.\n- Thank them for their patience."
+      : "- Reconoce el problema con calma.\n- Disculpate por la molestia.\n- Haz una pregunta clara para entender la situacion.\n- Ofrece un siguiente paso concreto.\n- Agradece su paciencia.";
+  }
 
   return isEnglish
     ? "- Confirm the main point is clear.\n- Check names, dates, and important details.\n- Make sure the tone is respectful and professional.\n- Remove unnecessary words.\n- Read it once before sending."
@@ -497,8 +540,22 @@ function isFormalDraftAnswer(answer) {
   return /\b(hola, espero que se encuentre bien|hello, i hope you are doing well|quedo atento|i look forward)\b/.test(text);
 }
 
+function isWeakListAnswer(answer) {
+  const text = normalizePromptText(answer);
+  return /\b(agrega un detalle especifico|add one specific detail|puedo ayudarte con eso|confirma la idea principal|check names, dates)\b/.test(text);
+}
+
+function isNonListAnswer(answer) {
+  return !/^\s*(-|\d+[.)])\s+/m.test(String(answer || "").trim());
+}
+
 function buildRescueAnswer(prompt, locale, intent) {
   const isEnglish = locale === "en";
+
+  if (intent === "list") {
+    return buildListFallback(prompt, locale);
+  }
+
   const knownAnswer = buildKnownAnswer(prompt, locale);
 
   if (knownAnswer) {
@@ -507,10 +564,6 @@ function buildRescueAnswer(prompt, locale, intent) {
 
   if (intent === "write") {
     return buildWriteFallback(prompt, locale);
-  }
-
-  if (intent === "list") {
-    return buildListFallback(prompt, locale);
   }
 
   if (intent === "translate") {
@@ -692,7 +745,7 @@ app.post("/api/ask", async (req, res) => {
 
     lastOpenAIError = null;
 
-    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && isFormalDraftAnswer(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
+    if (!answer || (intent === "write" && isClarifyingWriteAnswer(answer, responseLocale)) || (intent === "list" && (isFormalDraftAnswer(answer) || isWeakListAnswer(answer) || isNonListAnswer(answer))) || (intent === "explain" && isGenericExplainFallback(answer)) || (intent === "transform" && (isGenericExplainFallback(answer) || isBadTransformAnswer(prompt, answer)))) {
       answer = buildRescueAnswer(prompt, responseLocale, intent);
     }
 
@@ -739,6 +792,16 @@ app.listen(port, () => {
   console.log(`Backend version: ${backendVersion}`);
   console.log(`Daily AI limit: ${dailyAiLimit}`);
 });
+
+
+
+
+
+
+
+
+
+
 
 
 
